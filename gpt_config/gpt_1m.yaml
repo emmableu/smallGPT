@@ -1,0 +1,7 @@
+block_size: 384
+n_layer: 2
+n_head: 2
+n_embd: 64
+dropout: 0.2
+bias: true
+vocab_size: 50304

@@ -1,0 +1,14 @@
+out_dir: 'out-shakespeare'
+eval_interval: 5
+eval_iters: 20
+log_interval: 1
+dataset: 'shakespeare'
+gradient_accumulation_steps: 1
+batch_size: 64
+learning_rate: 0.001
+max_iters: 20
+lr_decay_iters: 20
+min_lr: 0.0001
+beta2: 0.99
+warmup_iters: 100
+run_id: run1

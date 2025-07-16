@@ -2,7 +2,7 @@ dataset: 'shakespeare'
 eval_steps: 1000
 gradient_accumulation_steps: 4
 logging_dir: 'logs'
-logging_steps: 10
+logging_steps: 100
 learning_rate: 0.001
 num_train_epochs: 1
 out_dir: 'outputs/shakespeare_1m'

@@ -1,14 +1,11 @@
 import os
-import torch
-
 PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../"))
-import requests
 import yaml
-from torch.utils.data import Dataset
 from dataclasses import dataclass, asdict
 from transformers import Trainer, TrainingArguments
 from model import GPT, GPTConfig
 import argparse
+import numpy as np
 
 
 @dataclass
@@ -57,10 +54,9 @@ class TokenDataset(Dataset):
     def __getitem__(self, idx):
         input_ids = torch.tensor(self.data[idx:idx + self.block_size], dtype=torch.long)
         labels = torch.tensor(self.data[idx + 1:idx + self.block_size + 1], dtype=torch.long)
-        return {"idx": input_ids, "targets": labels}
+        return {"inputs": input_ids, "labels": labels}
 
 def run_train(gpt_config, train_config):
-    import numpy as np
 
     # Load pre-tokenized .bin files
     bin_dir = os.path.join(PROJECT_ROOT, f'data/{train_config.dataset}')
@@ -116,7 +112,7 @@ def run_train(gpt_config, train_config):
     trainer.train()
     trainer.save_model(final_dir)
     eval_metrics = trainer.evaluate()
-    print(f"\n📉 Eval loss: {eval_metrics.get('eval_loss'):.4f}")
+    print(f"\n📉 Eval loss: {eval_metrics=}")
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser()

@@ -5,31 +5,29 @@ PROJECT_ROOT = os.path.abspath(os.path.join(os.path.dirname(__file__), "../../")
 import requests
 import yaml
 from torch.utils.data import Dataset
-from dataclasses import dataclass
+from dataclasses import dataclass, asdict
 from transformers import Trainer, TrainingArguments
 from model import GPT, GPTConfig
+import argparse
 
-# Load GPTConfig from YAML
-def load_gpt_config(yaml_path):
-    with open(yaml_path, 'r') as f:
-        config_dict = yaml.safe_load(f)
-    return GPTConfig(**config_dict)
 
 @dataclass
 class TrainConfig:
-    out_dir: str
-    eval_interval: int
-    eval_iters: int
-    log_interval: int
     dataset: str
+    eval_steps: int
     gradient_accumulation_steps: int
-    batch_size: int
+    logging_dir: str
+    logging_steps: int
     learning_rate: float
-    max_iters: int
-    lr_decay_iters: int
-    min_lr: float
-    beta2: float
-    warmup_iters: int
+    num_train_epochs: int
+    out_dir: str
+    per_device_eval_batch_size: int
+    per_device_train_batch_size: int
+    report_to: str
+    run_id: str
+    save_strategy: str
+    warmup_steps: int
+    weight_decay: float
 
     @staticmethod
     def from_yaml(path):
@@ -37,7 +35,18 @@ class TrainConfig:
             data = yaml.safe_load(f)
         return TrainConfig(**data)
 
-class CharDataset(Dataset):
+    def to_yaml(self, path):
+        with open(path, 'w') as f:
+            yaml.dump(asdict(self), f, sort_keys=False)
+
+from torch.utils.data import Dataset
+import torch
+
+class TokenDataset(Dataset):
+    """
+    A PyTorch Dataset for loading tokenized sequences from a 1D array of token IDs.
+    Each item is a pair of (input_ids, labels), where labels is input_ids shifted by one token.
+    """
     def __init__(self, data, block_size):
         self.data = data
         self.block_size = block_size
@@ -46,67 +55,57 @@ class CharDataset(Dataset):
         return len(self.data) - self.block_size
 
     def __getitem__(self, idx):
-        x = torch.tensor(self.data[idx:idx+self.block_size], dtype=torch.long)
-        y = torch.tensor(self.data[idx+1:idx+self.block_size+1], dtype=torch.long)
-        return {"input_ids": x, "labels": y}
+        input_ids = torch.tensor(self.data[idx:idx + self.block_size], dtype=torch.long)
+        labels = torch.tensor(self.data[idx + 1:idx + self.block_size + 1], dtype=torch.long)
+        return {"idx": input_ids, "targets": labels}
 
-def main():
-    # Load text
-    input_file_path = os.path.join(PROJECT_ROOT, 'data/shakespeare/input.txt')
-    if not os.path.exists(input_file_path):
-        os.makedirs(os.path.dirname(input_file_path), exist_ok=True)
-        data_url = 'https://raw.githubusercontent.com/karpathy/char-rnn/master/data/tinyshakespeare/input.txt'
-        with open(input_file_path, 'w', encoding='utf-8') as f:
-            f.write(requests.get(data_url).text)
+def run_train(gpt_config, train_config):
+    import numpy as np
 
-    with open(input_file_path, 'r', encoding='utf-8') as f:
-        text = f.read()
+    # Load pre-tokenized .bin files
+    bin_dir = os.path.join(PROJECT_ROOT, f'data/{train_config.dataset}')
+    train_ids = np.memmap(os.path.join(bin_dir, 'train.bin'), dtype=np.uint16, mode='r')
+    val_ids = np.memmap(os.path.join(bin_dir, 'val.bin'), dtype=np.uint16, mode='r')
 
-    # Tokenize
-    chars = sorted(list(set(text)))
-    vocab_size = len(chars)
-    stoi = { ch:i for i,ch in enumerate(chars) }
-    encode = lambda s: [stoi[c] for c in s]
-    data = torch.tensor(encode(text), dtype=torch.long)
-
-    # Split
-    train_data = data[:int(0.9*len(data))]
-    val_data = data[int(0.9*len(data)):]
+    train_data = torch.tensor(train_ids[:], dtype=torch.long)
+    val_data = torch.tensor(val_ids[:], dtype=torch.long)
 
     # Load configs
-    gpt_cfg = load_gpt_config(os.path.join(PROJECT_ROOT, "gpt_config/gpt_1m.yaml"))
-    gpt_cfg.vocab_size = vocab_size
-    model = GPT(gpt_cfg)
+    model = GPT(gpt_config)
 
-    train_cfg = TrainConfig.from_yaml(os.path.join(PROJECT_ROOT, "train_config/shakespeare_1m.yaml"))
-
-    # Dataset
-    train_dataset = CharDataset(train_data, gpt_cfg.block_size)
-    eval_dataset = CharDataset(val_data, gpt_cfg.block_size)
-
-    run_dir = os.path.join(train_cfg.out_dir, train_cfg.run_id)
+    run_dir = os.path.join(PROJECT_ROOT, train_cfg.out_dir, train_cfg.run_id)
+    os.makedirs(run_dir, exist_ok=True)
     checkpoints_dir = os.path.join(run_dir, "checkpoints")
     logs_dir = os.path.join(run_dir, "logs")
     final_dir = os.path.join(run_dir, "final")
 
+    train_config.to_yaml(run_dir + "/train_config.yaml")
+
+    # Dataset
+    train_dataset = TokenDataset(train_data, gpt_cfg.block_size)
+    eval_dataset = TokenDataset(val_data, gpt_cfg.block_size)
+    print(f"Trainer sees train dataset length: {len(train_dataset)}")
+    print(f"Trainer sees train dataset length: {len(eval_dataset)}")
+
     hf_args = TrainingArguments(
+        save_safetensors=False,
         output_dir=checkpoints_dir,
         eval_strategy="steps",
-        eval_steps=train_cfg.eval_interval,
-        logging_steps=train_cfg.log_interval,
-        per_device_train_batch_size=train_cfg.batch_size,
-        per_device_eval_batch_size=train_cfg.batch_size,
-        gradient_accumulation_steps=train_cfg.gradient_accumulation_steps,
-        learning_rate=train_cfg.learning_rate,
-        num_train_epochs=train_cfg.max_iters // len(train_dataset),
-        weight_decay=0.1,
-        warmup_steps=train_cfg.warmup_iters,
-        save_strategy="no",  # Disable automatic checkpointing unless needed
-        logging_dir=os.path.join(train_cfg.out_dir, "logs"),
-        report_to="none",  # prevent wandb/etc if not set up
+        eval_steps=train_config.eval_steps,
+        logging_steps=train_config.logging_steps,
+        per_device_train_batch_size=train_config.per_device_train_batch_size,
+        per_device_eval_batch_size=train_config.per_device_eval_batch_size,
+        gradient_accumulation_steps=train_config.gradient_accumulation_steps,
+        learning_rate=train_config.learning_rate,
+        num_train_epochs=train_config.num_train_epochs,
+        weight_decay=train_config.weight_decay,
+        warmup_steps=train_config.warmup_steps,
+        save_strategy=train_config.save_strategy,
+        logging_dir=train_config.logging_dir,
+        report_to=train_config.report_to,
+
     )
 
-    # Define trainer
     trainer = Trainer(
         model=model,
         args=hf_args,
@@ -116,6 +115,15 @@ def main():
 
     trainer.train()
     trainer.save_model(final_dir)
+    eval_metrics = trainer.evaluate()
+    print(f"\n📉 Eval loss: {eval_metrics.get('eval_loss'):.4f}")
 
 if __name__ == '__main__':
-    main()
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--gpt_config", type=str, required=True)
+    parser.add_argument("--train_config", type=str, required=True)
+    gpt_cfg = GPTConfig.from_yaml(os.path.join(PROJECT_ROOT, "gpt_config/gpt_1m.yaml"))
+    train_cfg = TrainConfig.from_yaml(os.path.join(PROJECT_ROOT, "train_config/shakespeare_1m.yaml"))
+    print(f'{gpt_cfg=}')
+    print(f'{train_cfg=}')
+    run_train(gpt_cfg, train_cfg)

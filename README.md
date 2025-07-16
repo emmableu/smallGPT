@@ -1,4 +1,9 @@
 # smallgpt
+This is a minimal GPT project.
+
+## Install dependencies
+
+We recommend using [`uv`](https://github.com/astral-sh/uv) for managing dependencies:
 
 ## Train GPT on Shakespeare
 
@@ -9,14 +14,8 @@ python src/smallgpt/train.py
 This downloads `input.txt` from Karpathy’s tinyshakespeare and trains a toy GPT on it using config files:
 - `gpt_config/gpt_1m.yaml`
 - `train_config/shakespeare_1m.yaml`
-```
+
 Results will be printed to console every few steps.
-
-This is a minimal GPT project.
-
-## Install dependencies
-
-We recommend using [`uv`](https://github.com/astral-sh/uv) for managing dependencies:
 
 ```bash
 uv venv

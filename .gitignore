@@ -14,3 +14,11 @@ wheels/
 .idea/
 .python-version
 outputs
+
+# macOS system files
+*.DS_Store
+
+
+# Shakespeare dataset binaries
+data/*/train.bin
+data/*/val.bin

@@ -11,6 +11,7 @@ https://github.com/huggingface/transformers/blob/main/src/transformers/models/gp
 import math
 import inspect
 from dataclasses import dataclass
+import yaml
 
 import torch
 import torch.nn as nn
@@ -116,6 +117,12 @@ class GPTConfig:
     dropout: float = 0.0
     bias: bool = True # True: bias in Linears and LayerNorms, like GPT-2. False: a bit better and faster
 
+    @staticmethod
+    def from_yaml(yaml_path):
+        with open(yaml_path, 'r') as f:
+            config_dict = yaml.safe_load(f)
+        return GPTConfig(**config_dict)
+
 class GPT(nn.Module):
 
     def __init__(self, config):
@@ -191,7 +198,7 @@ class GPT(nn.Module):
             logits = self.lm_head(x[:, [-1], :]) # note: using list [-1] to preserve the time dim
             loss = None
 
-        return logits, loss
+        return {"loss": loss, "logits": logits}
 
     def crop_block_size(self, block_size):
         # model surgery to decrease the block size if necessary
